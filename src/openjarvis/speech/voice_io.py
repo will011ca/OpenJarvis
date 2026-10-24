@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+import os
 import wave
+from typing import Any
 
 _SAMPLE_RATE = 16000
 _CHANNELS = 1
@@ -12,6 +14,60 @@ _SILENCE_THRESHOLD = 500  # RMS below this → silence
 _SILENCE_SECONDS = 1.5  # seconds of silence before auto-stop
 _STARTUP_SILENCE_SECONDS = 5.0  # give up early if speech never begins
 _MAX_RECORD_SECONDS = 30  # safety ceiling
+
+
+def resolve_input_device(sd: Any, device_spec: str | None = None) -> int | None:
+    """Resolve ``JARVIS_MIC`` as an input-device index or name fragment."""
+    if device_spec is None:
+        device_spec = os.environ.get("JARVIS_MIC")
+    if not device_spec or not device_spec.strip():
+        return None
+
+    spec = device_spec.strip()
+    devices = sd.query_devices()
+    input_devices = [
+        (index, device)
+        for index, device in enumerate(devices)
+        if int(device.get("max_input_channels", 0)) > 0
+    ]
+    available = ", ".join(
+        f"{index}: {device['name']}" for index, device in input_devices
+    )
+
+    try:
+        index = int(spec)
+    except ValueError:
+        matches = [
+            (index, device)
+            for index, device in input_devices
+            if spec.casefold() in str(device.get("name", "")).casefold()
+        ]
+        if len(matches) == 1:
+            return matches[0][0]
+        if len(matches) > 1:
+            choices = ", ".join(
+                f"{index}: {device['name']}" for index, device in matches
+            )
+            raise RuntimeError(
+                f"JARVIS_MIC={spec!r} matches multiple input devices: {choices}. "
+                "Set it to one of the numeric indexes."
+            )
+        raise RuntimeError(
+            f"JARVIS_MIC={spec!r} did not match an input device. "
+            f"Available input devices: {available or 'none'}."
+        )
+
+    if index < 0 or index >= len(devices):
+        raise RuntimeError(
+            f"JARVIS_MIC index {index} is out of range. "
+            f"Available input devices: {available or 'none'}."
+        )
+    if int(devices[index].get("max_input_channels", 0)) <= 0:
+        raise RuntimeError(
+            f"JARVIS_MIC index {index} is not an input device. "
+            f"Available input devices: {available or 'none'}."
+        )
+    return index
 
 
 def _rms(data: bytes) -> float:
@@ -50,6 +106,7 @@ def record_until_silence(
     silence_chunks = int(silence_seconds * chunks_per_second)
     startup_silence_chunks = max(1, int(startup_silence_seconds * chunks_per_second))
     max_chunks = int(max_seconds * chunks_per_second)
+    device = resolve_input_device(sd)
 
     frames: list[bytes] = []
     silence_count = 0
@@ -60,6 +117,7 @@ def record_until_silence(
         channels=_CHANNELS,
         dtype="int16",
         blocksize=_CHUNK,
+        device=device,
     ) as stream:
         for _ in range(max_chunks):
             raw, _ = stream.read(_CHUNK)
@@ -123,4 +181,4 @@ def play_wav(audio: bytes, sample_rate: int = 24000) -> None:
     sd.wait()
 
 
-__all__ = ["play_wav", "record_until_silence"]
+__all__ = ["play_wav", "record_until_silence", "resolve_input_device"]

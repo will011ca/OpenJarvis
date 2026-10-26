@@ -66,8 +66,9 @@ performance on physical Windows ARM hardware.
   clones the repo, and runs `uv sync --extra desktop --group desktop-native`.
 - An optional Windows scheduled-task service equivalent to the systemd
   unit and launchd plist.
-- Loopback default — the service binds `127.0.0.1` so no API key is
-  required.
+- Loopback default — the service binds `127.0.0.1`, not the network.
+- An API key is required even on loopback. Create and store one with
+  `jarvis auth create-key` before starting the server.
 
 ## What you need
 

@@ -11,6 +11,11 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.markup import escape
 
+from openjarvis.cli._live_voice_chat import (
+    is_voice_exit,
+    run_live_generation,
+    transcribe_phrase,
+)
 from openjarvis.cli._runtime_panel import runtime_cli_options
 from openjarvis.cli._tool_names import resolve_tool_names
 from openjarvis.cli._voice_chat import VOICE_EXIT, VoiceSession, read_voice_input, speak
@@ -18,6 +23,7 @@ from openjarvis.core.config import load_config
 from openjarvis.core.events import EventBus
 from openjarvis.core.types import Message, Role
 from openjarvis.memory import publish_completed_exchange
+from openjarvis.speech.live_input import LiveVoiceInput
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +84,16 @@ def _read_input(prompt: str = "You> ") -> Optional[str]:
     default=False,
     help="Enable voice I/O: mic input with silence detection + TTS response playback.",
 )
+@click.option(
+    "--voice-live",
+    "voice_live",
+    is_flag=True,
+    default=False,
+    help=(
+        "Continuously listen, stream spoken responses, and interrupt them when "
+        "you speak (use headphones; requires --agent none)."
+    ),
+)
 @runtime_cli_options
 def chat(
     engine_key: str | None,
@@ -88,6 +104,7 @@ def chat(
     system_prompt: str | None,
     persona_name: str | None,
     voice_mode: bool,
+    voice_live: bool,
     num_ctx: int | None,
     num_gpu: int | None,
     skip_runtime_panel: bool,
@@ -108,9 +125,11 @@ def chat(
       /history      — show conversation history
 
     Pass --voice to use microphone input (silence-detection) and hear responses
-    read back via text-to-speech (kokoro local or OpenAI TTS).
+    read back via text-to-speech. ``--voice-live`` continuously listens and
+    streams spoken response sentences; use headphones for interruption.
     """
     console = Console(stderr=True)
+    voice_mode = voice_mode or voice_live
 
     config = load_config()
     bus = EventBus(record_history=False)
@@ -197,6 +216,11 @@ def chat(
     # Resolve agent (optional)
     agent = None
     agent_key = agent_name or config.agent.default_agent
+    if voice_live and agent_key and agent_key != "none":
+        raise click.UsageError(
+            "--voice-live streams directly from the engine and requires "
+            "--agent none. Use --voice for the normal agent-backed voice chat."
+        )
     if agent_key and agent_key != "none":
         try:
             import openjarvis.agents  # noqa: F401 — trigger registration
@@ -296,12 +320,18 @@ def chat(
     voice_session = VoiceSession(config) if voice_mode else None
 
     # Print banner
-    voice_hint = (
-        "  [magenta]Voice mode ON[/magenta] — type normally, or press Enter "
-        "to speak; silence stops recording.\n"
-        if voice_mode
-        else ""
-    )
+    if voice_live:
+        voice_hint = (
+            "  [magenta]Live voice ON[/magenta] — microphone stays active; "
+            "speak to interrupt. Say “Jarvis, sair” or press Ctrl+C to stop.\n"
+        )
+    elif voice_mode:
+        voice_hint = (
+            "  [magenta]Voice mode ON[/magenta] — type normally, or press Enter "
+            "to speak; silence stops recording.\n"
+        )
+    else:
+        voice_hint = ""
     console.print(
         f"[green bold]OpenJarvis Chat[/green bold]\n"
         f"  Engine: [cyan]{_safe_rich_label(engine_name)}[/cyan]  "
@@ -362,12 +392,54 @@ def chat(
     if system_prompt:
         history.append(Message(role=Role.SYSTEM, content=system_prompt))
 
+    live_listener = None
+    pending_voice_input: str | None = None
+    if voice_live:
+        assert voice_session is not None
+        if voice_session.get_stt_backend() is None:
+            raise click.ClickException(
+                "No speech-to-text backend is available for live voice. "
+                "Install/configure faster-whisper first."
+            )
+        live_listener = LiveVoiceInput()
+        try:
+            live_listener.start()
+        except Exception as exc:
+            raise click.ClickException(str(exc)) from exc
+        console.print(
+            "[dim cyan]Listening continuously — speak; "
+            "a short pause ends each phrase.[/dim cyan]"
+        )
+
     # REPL loop
     while True:
         for note in _notifications.diff(get_status()):
             console.print(f"[dim cyan]{note}[/dim cyan]")
 
-        if voice_mode:
+        if voice_live:
+            assert live_listener is not None and voice_session is not None
+            if pending_voice_input is not None:
+                result = pending_voice_input
+                pending_voice_input = None
+            else:
+                try:
+                    audio = live_listener.next_phrase()
+                    result = transcribe_phrase(audio, voice_session, console)
+                except KeyboardInterrupt:
+                    console.print("\n[dim]Goodbye![/dim]")
+                    break
+                except Exception as exc:
+                    console.print(f"\n[red]Live microphone error: {exc}[/red]")
+                    break
+            if result is None:
+                continue
+            if not result.strip():
+                continue
+            if is_voice_exit(result):
+                console.print("[dim]Goodbye![/dim]")
+                break
+            user_input = result
+        elif voice_mode:
             assert voice_session is not None
             result = read_voice_input(console, voice_session)
             if result is VOICE_EXIT:
@@ -469,7 +541,19 @@ def chat(
 
         # Generate response even when optional memory context is unavailable.
         try:
-            if agent is not None:
+            interrupted_voice_input = None
+            if voice_live:
+                assert live_listener is not None and voice_session is not None
+                content, interrupted_voice_input = run_live_generation(
+                    engine,
+                    generation_history,
+                    model=model,
+                    engine_kwargs=engine_kwargs,
+                    listener=live_listener,
+                    session=voice_session,
+                    console=console,
+                )
+            elif agent is not None:
                 from openjarvis.agents._stubs import AgentContext
 
                 agent_context = AgentContext()
@@ -499,20 +583,26 @@ def chat(
             console.print(Markdown(content))
             console.print()
             if voice_mode:
-                assert voice_session is not None
-                speak(content, console, voice_session)
+                if not voice_live:
+                    assert voice_session is not None
+                    speak(content, console, voice_session)
 
-            publish_completed_exchange(
-                bus,
-                user_input,
-                content,
-                source="cli.chat",
-            )
+            if interrupted_voice_input is None:
+                publish_completed_exchange(
+                    bus,
+                    user_input,
+                    content,
+                    source="cli.chat",
+                )
+            else:
+                pending_voice_input = interrupted_voice_input
         except KeyboardInterrupt:
             console.print("\n[dim]Generation interrupted.[/dim]")
         except Exception as exc:
             console.print(f"\n[red]Error: {exc}[/red]\n")
 
+    if live_listener is not None:
+        live_listener.close()
     if memory_service is not None:
         memory_service.stop()
 

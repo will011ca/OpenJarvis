@@ -8,14 +8,9 @@ import shutil
 import subprocess
 import sys
 import time
-import webbrowser
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parent
-WEB_URL = "http://127.0.0.1:8000/"
-HEALTH_URL = "http://127.0.0.1:8000/health"
 CLAP_PAIR_SECONDS = 1.25
 CLAP_MIN_INTERVAL_SECONDS = 0.18
 
@@ -143,40 +138,6 @@ def _play_jingle_if_present() -> None:
         _mci("close jarvis_jingle")
 
 
-def _url_is_ready(url: str) -> bool:
-    try:
-        with urlopen(url, timeout=1) as response:
-            return response.status == 200
-    except (URLError, OSError):
-        return False
-
-
-def _open_web_ui(uv: str) -> None:
-    if not _url_is_ready(HEALTH_URL):
-        result = subprocess.run(
-            [uv, "run", "jarvis", "start", "--port", "8000"],
-            cwd=ROOT,
-            env=os.environ.copy(),
-            check=False,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"jarvis start terminou com código {result.returncode}."
-            )
-
-        deadline = time.monotonic() + 90
-        while time.monotonic() < deadline and not _url_is_ready(HEALTH_URL):
-            time.sleep(0.5)
-        if not _url_is_ready(HEALTH_URL):
-            raise RuntimeError("A API não respondeu na porta 8000 em 90 segundos.")
-
-    if not _url_is_ready(WEB_URL):
-        raise RuntimeError(f"A interface web não respondeu em {WEB_URL}.")
-    if not webbrowser.open(WEB_URL):
-        raise RuntimeError(f"Não foi possível abrir o navegador em {WEB_URL}.")
-    print(f"Interface web aberta em {WEB_URL}.")
-
-
 def main() -> int:
     if os.name != "nt":
         raise RuntimeError("Este acionador foi configurado para Windows.")
@@ -202,9 +163,9 @@ def main() -> int:
     uv = _uv_executable()
     _listen_for_double_clap(sd, np, device, threshold)
     _play_jingle_if_present()
-    _open_web_ui(uv)
+    print("Iniciando conversa de voz contínua. Ctrl+C encerra.")
     return subprocess.run(
-        [uv, "run", "jarvis", "chat", "--voice"],
+        [uv, "run", "jarvis", "chat", "--voice-live", "--agent", "none"],
         cwd=ROOT,
         env=os.environ.copy(),
         check=False,

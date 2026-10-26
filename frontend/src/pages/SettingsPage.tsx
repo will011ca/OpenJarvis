@@ -545,7 +545,7 @@ export function SettingsPage() {
                 }}
               />
             </SettingRow>
-            <SettingRow label="API key" description="Required only if the server was started with an API key">
+            <SettingRow label="API key" description="Required; create one with `jarvis auth create-key`">
               <input
                 type="password"
                 value={settings.apiKey}

@@ -18,6 +18,17 @@ Start with default settings:
 jarvis serve
 ```
 
+The API server requires an API key on every bind address, including loopback.
+Create and store one before starting the server:
+
+```bash
+jarvis auth create-key
+```
+
+Alternatively, set `OPENJARVIS_API_KEY` in the server process environment.
+Requests from the web interface or other clients must include the configured
+key in their API settings.
+
 For a cloud-hosted example, see [Deploy on Render](render.md). Its free-tier
 Blueprint is intended for evaluation only because local OpenJarvis state is
 ephemeral.

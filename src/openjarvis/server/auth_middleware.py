@@ -82,8 +82,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ``/redoc``) are gated too: on an exposed deployment they hand an
         unauthenticated client a complete map of every route, parameter and
         payload shape — useful reconnaissance for probing the authenticated
-        endpoints. This only applies when an API key is configured at all, so
-        keyless local use is unchanged.
+        endpoints. The ``jarvis serve`` CLI refuses to start without a key;
+        callers embedding ``create_app`` should configure one before exposure.
         """
         return (
             path.startswith("/v1/")
@@ -102,24 +102,18 @@ def generate_api_key() -> str:
 
 
 def check_bind_safety(host: str, *, api_key: str) -> None:
-    """Refuse to bind non-loopback without an API key.
+    """Refuse to start the API server without an API key.
 
-    Raises ``SystemExit`` if *host* is not a loopback address and
-    *api_key* is empty.
+    Authentication is required even on loopback so an unset key cannot
+    silently disable the authentication middleware.
     """
-    import ipaddress
     import sys
 
-    try:
-        is_loop = ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        is_loop = host in ("localhost", "")
-
-    if not is_loop and not api_key:
+    if not api_key:
         logger.error(
-            "Binding to %s requires OPENJARVIS_API_KEY to be set. "
-            "Run: jarvis auth generate-key",
-            host,
+            "Starting the API server requires OPENJARVIS_API_KEY or "
+            "[server.auth].api_key to be set (also on loopback). "
+            "Run: jarvis auth create-key"
         )
         sys.exit(1)
 

@@ -28,6 +28,38 @@ jarvis ask "What is quantum computing?"
 
 That's it. No API keys, no tools, no cloud -- just a local model answering your questions.
 
+### Live voice chat
+
+Install the voice dependencies with `uv sync --extra voice`, then start:
+
+```bash
+jarvis chat --voice-live --agent none
+```
+
+The microphone remains active for the session. A short pause marks the end of
+each phrase; the configured speech-to-text backend transcribes it locally, and
+the answer is streamed to text-to-speech sentence by sentence. Speak again to
+interrupt the current answer. Use headphones to prevent speaker audio from
+being mistaken for your voice. Say “Jarvis, sair” or press Ctrl+C to stop.
+
+This mode streams the model response, but speech recognition is phrase-based:
+the local Faster-Whisper backend does not provide partial transcription while
+you are still speaking. Live mode uses direct engine responses and therefore
+requires `--agent none`; ordinary agent-backed voice chat remains available
+with `jarvis chat --voice`.
+
+To use voice with explicitly confirmed, read-only queries on manually
+registered computers in your private LAN, see the
+[LAN computer guide](lan-devices.md). This uses `--voice` with a tool-enabled
+agent; `--voice-live` does not invoke tools.
+
+On Windows, `jarvis-show.cmd` starts this live voice mode after detecting two
+claps and optionally playing `voice/assets/jingle.mp3`. It stays in the
+terminal and does not open the browser, so no API key needs to be entered there.
+Set `JARVIS_CLAP_THRESH` (default `0.65`) to adjust clap sensitivity; lower
+values are more sensitive. Set `JARVIS_MIC` to select a microphone, or run
+`jarvis-show.cmd --list-mics` to see available devices.
+
 ## CLI Commands
 
 ```bash
@@ -36,6 +68,9 @@ jarvis ask "Explain the difference between TCP and UDP"
 
 # Interactive chat session (multi-turn conversation)
 jarvis chat
+
+# Continuous voice chat (local STT/TTS, streamed answers)
+jarvis chat --voice-live --agent none
 
 # Start the API server for the browser or desktop app
 jarvis serve

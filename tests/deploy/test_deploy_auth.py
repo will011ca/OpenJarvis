@@ -52,8 +52,10 @@ def test_launchd_plist_binds_loopback():
 @pytest.mark.parametrize(
     ("host", "api_key", "should_exit"),
     [
-        ("127.0.0.1", "", False),
-        ("localhost", "", False),
+        ("127.0.0.1", "", True),
+        ("localhost", "", True),
+        ("127.0.0.1", "oj_sk_x", False),
+        ("localhost", "oj_sk_x", False),
         ("0.0.0.0", "oj_sk_x", False),
         ("0.0.0.0", "", True),
         ("192.168.1.10", "", True),

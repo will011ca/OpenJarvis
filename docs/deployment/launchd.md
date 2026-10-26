@@ -25,12 +25,10 @@ launchctl load ~/Library/LaunchAgents/com.openjarvis.plist
 The service starts immediately (due to `RunAtLoad`) and will automatically restart at each login.
 
 !!! note "Binds loopback by default"
-    The plist binds `127.0.0.1` — reachable from this Mac but not the network,
-    the right default for a personal device, and no API key is needed. To
-    expose it on your LAN, change the host to `0.0.0.0` **and** uncomment the
-    `EnvironmentVariables` block to set `OPENJARVIS_API_KEY`
-    (`jarvis auth generate-key`); an unauthenticated `0.0.0.0` server refuses
-    to start.
+    The plist binds `127.0.0.1` — reachable from this Mac but not the network.
+    An API key is required even on loopback; create and store one with
+    `jarvis auth create-key` before loading the service. To expose it on your
+    LAN, change the host to `0.0.0.0` and keep the API key configured.
 
 Verify it is running:
 

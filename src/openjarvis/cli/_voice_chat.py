@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Optional
 
 from rich.markup import escape
@@ -173,7 +174,13 @@ def record_voice(
         return None
 
 
-def speak(text: str, console: Any, session: VoiceSession | None = None) -> None:
+def speak(
+    text: str,
+    console: Any,
+    session: VoiceSession | None = None,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Synthesize and play text, reusing a healthy backend for the session."""
     from openjarvis.speech.voice_io import play_wav
 
@@ -189,11 +196,15 @@ def speak(text: str, console: Any, session: VoiceSession | None = None) -> None:
 
     while (backend := active_session.get_tts_backend()) is not None:
         try:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             voice_id, speed = active_session.voice_for_backend(backend, console)
             synth_kwargs: dict[str, Any] = {"output_format": "wav", "speed": speed}
             if voice_id:
                 synth_kwargs["voice_id"] = voice_id
             result = backend.synthesize(text, **synth_kwargs)
+            if cancel_event is not None and cancel_event.is_set():
+                return
             if result.audio:
                 play_wav(result.audio, sample_rate=result.sample_rate)
             return
